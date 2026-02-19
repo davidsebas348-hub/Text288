@@ -1,73 +1,80 @@
 local Players = game:GetService("Players")
-local workspace = game:GetService("Workspace")
+local Workspace = game:GetService("Workspace")
+local Kit = Workspace:WaitForChild("Kit")
+local Garge = Kit:WaitForChild("Garge")
+local Door = Garge:WaitForChild("Door")
+local Button = Garge:WaitForChild("Button")
 
-local player = Players.LocalPlayer
+local HumFolder = Workspace:WaitForChild("Hum")
 
-local kit = workspace:WaitForChild("Kit")
-local clientsValue = kit:WaitForChild("Clients")
-
-local garge = kit:WaitForChild("Garge")
-local door = garge:WaitForChild("Door")
-local button = garge:WaitForChild("Button")
-
-local CLOSED_SIZE = Vector3.new(11.138, 5.964, 0.094)
-local FINAL_POSITION = Vector3.new(-36, 4, -492)
-
--- Root
+-- ROOT
 local function getRoot()
-	local char = player.Character or player.CharacterAdded:Wait()
+	local char = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
 	return char:WaitForChild("HumanoidRootPart")
 end
 
-local function teleport(pos)
-	getRoot().CFrame = CFrame.new(pos)
+-- TELEPORT + ACTIVAR PROMPT
+local function teleportAndActivate(prompt, part)
+	local root = getRoot()
+	root.CFrame = part.CFrame + Vector3.new(0,3,0)
+	task.wait(0.2)
+	pcall(function()
+		fireproximityprompt(prompt)
+	end)
 end
 
+-- CHEQUEAR PUERTA CERRADA
+local CLOSED_SIZE = Vector3.new(11.138, 5.964, 0.094)
 local function isDoorClosed()
-	return (door.Size - CLOSED_SIZE).Magnitude <= 0.01
+	return (Door.Size - CLOSED_SIZE).Magnitude <= 0.01
 end
 
-local function closeDoorIfNeeded()
-	if not isDoorClosed() then
-		local prompt = button:FindFirstChildOfClass("ProximityPrompt")
-		if prompt and prompt.Enabled then
-			task.wait(2)
-			teleport(button.Position + Vector3.new(0,3,0))
-			task.wait(0.2)
-			pcall(function()
-				fireproximityprompt(prompt)
-			end)
+-- BUSCAR PROMPT DE LA PUERTA
+local function findButtonPrompt()
+	if Button then
+		local prompt = Button:FindFirstChildOfClass("ProximityPrompt")
+		if prompt then
+			return prompt, Button
 		end
 	end
+	return nil, nil
 end
 
-local function waitUntilClosed()
-	while not isDoorClosed() do
-		door:GetPropertyChangedSignal("Size"):Wait()
+-- ABRIR PUERTA
+local function openDoor()
+	local prompt, part = findButtonPrompt()
+	if prompt and part then
+		teleportAndActivate(prompt, part)
+		print("Puerta abierta automáticamente por desaparición de modelo sin Done=true")
 	end
 end
 
-local function checkSystem()
-	if clientsValue.Value ~= 0 then return end
+-- SEGUIMIENTO DE MODELOS
+local modelStates = {}
 
-	print("Clients = 0 detectado")
-
-	-- 1️⃣ Intentar cerrar si está abierta
-	closeDoorIfNeeded()
-
-	-- 2️⃣ Esperar hasta que REALMENTE esté cerrada
-	waitUntilClosed()
-
-	-- 3️⃣ Teleport final SIEMPRE
-	print("Puerta cerrada → Teleport final")
-	teleport(FINAL_POSITION)
+-- Registrar modelos existentes al inicio
+for _, model in pairs(HumFolder:GetChildren()) do
+	if model:IsA("Model") then
+		modelStates[model] = model:GetAttribute("Done")
+	end
 end
 
-clientsValue:GetPropertyChangedSignal("Value"):Connect(checkSystem)
-
-player.CharacterAdded:Connect(function()
-	task.wait(1)
-	checkSystem()
+-- Cuando aparece un modelo nuevo
+HumFolder.ChildAdded:Connect(function(model)
+	if model:IsA("Model") then
+		modelStates[model] = model:GetAttribute("Done")
+	end
 end)
 
-checkSystem()
+-- Cuando desaparece un modelo
+HumFolder.ChildRemoved:Connect(function(model)
+	if model:IsA("Model") then
+		local doneValue = modelStates[model] or false
+		modelStates[model] = nil
+
+		-- Solo abrir la puerta si la puerta estaba cerrada y el modelo nunca puso Done=true
+		if isDoorClosed() and not doneValue then
+			openDoor()
+		end
+	end
+end)
